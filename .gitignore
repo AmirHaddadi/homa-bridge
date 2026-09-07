@@ -1,0 +1,29 @@
+# ── local environment ────────────────────────────────────────────────────────
+.env
+.env.local
+
+# ── python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+
+# ── Claude Code workspace (local only) ───────────────────────────────────────
+.claude/
+
+# ── runtime state & private trading data (never published) ──────────────────
+mt5bridge_state/*.json
+trade_journal/20*/
+trade_journal/**/*.csv
+trade_journal/**/news_calendar.md
+
+# ── scratch / editor ────────────────────────────────────────────────────────
+_old_scratch_scripts/
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.~lock.*#
+*~
