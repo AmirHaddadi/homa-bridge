@@ -20,21 +20,23 @@ Pipeline (H1 -> M15 -> M5 -> M1), each step gates the next:
                               direction, breaking the pullback's short-term
                               structure, before proposing an entry
   5. Risk gate              - the structural SL must fit inside this trading
-                              system's per-trade risk cap (config.MAX_LOSS_USD
-                              at config.MAX_LOT); if it doesn't, the setup is
-                              REJECTED outright rather than widened
+                              system's per-trade risk cap (config.max_loss_for
+                              the symbol, measured at the broker-minimum lot);
+                              if it doesn't, the setup is REJECTED outright
+                              rather than widened
   6. Filters                - NY session window, news blackout, and a
                               volatility-spike guard (mechanical version of
                               "that candle is news, stand aside")
 
 This module only proposes a signal dict; it never calls mt5bridge.orders.
 Execution still goes through the normal place_pending() + "CONFIRM ENTRY"
-flow, at config.MAX_LOT (pinned to the broker minimum -- see risk.py).
+flow. The proposed lot is risk-sized from the SL distance (risk.compute_lot_
+for_risk), clamped to config.MAX_LOT (2026-09-09 sniper regime: 0.01-0.03).
 """
 from datetime import datetime, time as dtime, timedelta
 
 from . import base
-from .. import config
+from .. import config, risk
 
 NAME = "amir_trade"
 
@@ -251,11 +253,15 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
     tick_size = snapshot["tick"]["tick_size"]
     contract_size = snapshot["tick"]["contract_size"]
     symbol = snapshot.get("symbol", "")
-    max_lot = config.MAX_LOT
+    volume_min = snapshot["tick"]["volume_min"]
+    volume_step = snapshot["tick"]["volume_step"]
     max_loss_usd = config.max_loss_for(symbol)
     max_profit_usd = config.max_profit_for(symbol)
-    max_structural_points = max_loss_usd / (contract_size * max_lot)
-    max_reward_points = max_profit_usd / (contract_size * max_lot)
+    # The widest acceptable stop is the one that still fits the risk cap at the
+    # broker-minimum lot; tighter stops just get sized up toward config.MAX_LOT
+    # (sniper regime 2026-09-09 -- lot follows the SL distance, see config).
+    max_structural_points = max_loss_usd / (contract_size * volume_min)
+    max_reward_points = max_profit_usd / (contract_size * volume_min)
 
     session_hi, session_lo = _session_range(m15, reference_time.date())
 
@@ -266,7 +272,7 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
         if risk_points <= 0 or risk_points > max_structural_points:
             return base.no_signal(
                 f"structural SL is {risk_points:.2f}pt, exceeds the {max_structural_points:.2f}pt cap "
-                f"for ${max_loss_usd} risk at {max_lot} lot -- rejecting rather than widening the stop"
+                f"for ${max_loss_usd} risk at the {volume_min} broker-minimum lot -- rejecting rather than widening the stop"
             )
         tp_distance = min(TARGET_RR * risk_points, max_reward_points)
         if session_hi and session_hi > entry:
@@ -280,7 +286,7 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
         if risk_points <= 0 or risk_points > max_structural_points:
             return base.no_signal(
                 f"structural SL is {risk_points:.2f}pt, exceeds the {max_structural_points:.2f}pt cap "
-                f"for ${max_loss_usd} risk at {max_lot} lot -- rejecting rather than widening the stop"
+                f"for ${max_loss_usd} risk at the {volume_min} broker-minimum lot -- rejecting rather than widening the stop"
             )
         tp_distance = min(TARGET_RR * risk_points, max_reward_points)
         if session_lo and session_lo < entry:
@@ -288,8 +294,10 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
         tp = round(entry - tp_distance, 2)
         entry_type = "sell_stop"
 
-    risk_usd = round(risk_points * contract_size * max_lot, 2)
-    reward_usd = round(tp_distance * contract_size * max_lot, 2)
+    lot = risk.compute_lot_for_risk(entry, sl, max_loss_usd, contract_size,
+                                    volume_min, volume_step, config.MAX_LOT)
+    risk_usd = round(risk_points * contract_size * lot, 2)
+    reward_usd = round(tp_distance * contract_size * lot, 2)
     capped_by_rr_ceiling = tp_distance < TARGET_RR * risk_points - 1e-9
 
     reasoning = (
@@ -308,7 +316,7 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
             "entry": entry,
             "sl": sl,
             "tp": tp,
-            "lot": max_lot,
+            "lot": lot,
             "leg_start": leg_start_time,
             "risk_usd": risk_usd,
             "reward_usd": reward_usd,

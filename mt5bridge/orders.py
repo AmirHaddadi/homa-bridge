@@ -56,14 +56,17 @@ def place_pending(symbol: str, order_type: str, entry: float, sl: float, tp: flo
         positions = mt5.positions_get() or ()
         orders = mt5.orders_get() or ()
         # Long-term swing tickets are exempt from the scalp capacity cap and do
-        # not count toward it (see config.LONG_TERM_MAGIC).
+        # not count toward it (see config.LONG_TERM_MAGIC). The cap is PER SYMBOL:
+        # one scalp order/position per instrument, so gold + NDX can run at once.
         if not long_term:
-            scalp_open = sum(1 for p in positions if p.magic != config.LONG_TERM_MAGIC) \
-                       + sum(1 for o in orders if o.magic != config.LONG_TERM_MAGIC)
+            scalp_open = sum(1 for p in positions
+                             if p.magic != config.LONG_TERM_MAGIC and p.symbol == symbol) \
+                       + sum(1 for o in orders
+                             if o.magic != config.LONG_TERM_MAGIC and o.symbol == symbol)
             if scalp_open >= config.MAX_OPEN_POSITIONS:
                 return {
                     "ok": False,
-                    "reason": "MAX_OPEN_POSITIONS reached, cancel/close existing first",
+                    "reason": f"MAX_OPEN_POSITIONS reached for {symbol}, cancel/close existing first",
                     "positions": len(positions), "orders": len(orders),
                 }
 
@@ -139,6 +142,45 @@ def cancel_order(ticket: int) -> dict:
             "ok": result.retcode == mt5.TRADE_RETCODE_DONE,
             "retcode": result.retcode,
             "broker_comment": result.comment,
+        }
+
+
+def modify_position(ticket: int, sl: float | None = None, tp: float | None = None) -> dict:
+    """Move the stop-loss / take-profit of an OPEN position (TRADE_ACTION_SLTP).
+
+    Used for trailing a stop to break-even and beyond. Passing None for a level
+    keeps the position's current value for that level. A protective trail must
+    not loosen risk, so the caller is trusted to pass a sane stop -- this only
+    guards against the obvious wrong-side mistake.
+    """
+    with connection.session() as mt5:
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            return {"ok": False, "reason": f"no open position with ticket {ticket}"}
+        pos = positions[0]
+        new_sl = pos.sl if sl is None else float(sl)
+        new_tp = pos.tp if tp is None else float(tp)
+        tick = mt5.symbol_info_tick(pos.symbol)
+        is_buy = pos.type == mt5.POSITION_TYPE_BUY
+        if sl is not None and tick is not None:
+            if is_buy and new_sl >= tick.bid:
+                return {"ok": False, "reason": f"SL {new_sl} not below price {tick.bid} for a long"}
+            if not is_buy and new_sl <= tick.ask:
+                return {"ok": False, "reason": f"SL {new_sl} not above price {tick.ask} for a short"}
+        result = mt5.order_send({
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": pos.symbol,
+            "position": pos.ticket,
+            "sl": new_sl,
+            "tp": new_tp,
+        })
+        return {
+            "ok": result.retcode == mt5.TRADE_RETCODE_DONE,
+            "retcode": result.retcode,
+            "broker_comment": result.comment,
+            "sl": new_sl,
+            "tp": new_tp,
+            "entry": pos.price_open,
         }
 
 

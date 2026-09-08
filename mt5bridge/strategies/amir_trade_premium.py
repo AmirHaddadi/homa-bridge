@@ -8,8 +8,9 @@ let each winner run further.
 
 What's different from plain amir_trade:
   - RISK/REWARD scaled up and detached from config: own $12 structural risk
-    cap at config.MAX_LOT, a 4.5R fixed target, up to a $60 reward cap. No
-    session-range TP throttle (that was capping amir_trade's winners short).
+    budget (lot risk-sized from the SL distance, clamped to config.MAX_LOT),
+    a 3.5R fixed target, up to a $60 reward cap. No session-range TP throttle
+    (that was capping amir_trade's winners short).
   - STRICTER H1 trend gate: EMA20 > EMA50, price above EMA20, AND EMA20 must
     be rising over the last 20 bars (no counter-slope entries).
   - PREDATORY pullback: the retracement must actually sweep the liquidity
@@ -25,7 +26,7 @@ Proposes a signal dict only; execution is unchanged (place_pending + CONFIRM).
 from datetime import datetime, time as dtime
 
 from . import base
-from .. import config
+from .. import config, risk
 from .amir_trade import (
     _dt, _closes, _ema, _find_leg, _session_range, _volatility_spike,
     _in_news_blackout, _h1_bias,
@@ -180,9 +181,12 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
     trigger, zone_extreme = trig["trigger"], trig["zone_extreme"]
     tick_size = snapshot["tick"]["tick_size"]
     contract_size = snapshot["tick"]["contract_size"]
-    lot = config.MAX_LOT
-    max_points = RISK_USD_CAP / (contract_size * lot)
-    max_reward_points = PROFIT_USD_CAP / (contract_size * lot)
+    volume_min = snapshot["tick"]["volume_min"]
+    volume_step = snapshot["tick"]["volume_step"]
+    # Accept-window measured at the broker-minimum lot; the actual position is
+    # risk-sized from the SL distance up to config.MAX_LOT (2026-09-09).
+    max_points = RISK_USD_CAP / (contract_size * volume_min)
+    max_reward_points = PROFIT_USD_CAP / (contract_size * volume_min)
 
     if bias == "BULLISH":
         entry = round(trigger["high"] + tick_size, 2)
@@ -205,6 +209,8 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
         tp = round(entry - tp_distance, 2)
         entry_type, side = "sell_stop", "SELL"
 
+    lot = risk.compute_lot_for_risk(entry, sl, RISK_USD_CAP, contract_size,
+                                    volume_min, volume_step, config.MAX_LOT)
     risk_usd = round(risk_points * contract_size * lot, 2)
     reward_usd = round(tp_distance * contract_size * lot, 2)
     capped = tp_distance < TARGET_RR * risk_points - 1e-9

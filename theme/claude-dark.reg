@@ -1,0 +1,43 @@
+Windows Registry Editor Version 5.00
+
+; Claude Dark -- warm near-black + book-cloth terracotta accent.
+; Wine-drawn window chrome, dialogs, menus, scrollbars, tooltips for the MT5
+; prefix. Chart surface itself is themed separately by Premium_Candles.tpl.
+; Apply with:  ./theme/apply-theme.sh dark      (restart MT5 to see it)
+
+[HKEY_CURRENT_USER\Control Panel\Colors]
+"ActiveBorder"="61 61 58"
+"ActiveTitle"="48 48 46"
+"AppWorkSpace"="26 25 21"
+"Background"="31 30 29"
+"ButtonAlternateFace"="48 48 46"
+"ButtonDkShadow"="26 25 21"
+"ButtonFace"="38 38 36"
+"ButtonHilight"="74 74 70"
+"ButtonLight"="54 53 49"
+"ButtonShadow"="61 61 58"
+"ButtonText"="232 230 220"
+"GradientActiveTitle"="48 48 46"
+"GradientInactiveTitle"="38 38 36"
+"GrayText"="140 136 121"
+"Hilight"="217 119 87"
+"HilightText"="31 30 29"
+"HotTrackingColor"="217 119 87"
+"InactiveBorder"="38 38 36"
+"InactiveTitle"="38 38 36"
+"InactiveTitleText"="140 136 121"
+"InfoText"="232 230 220"
+"InfoWindow"="48 48 46"
+"Menu"="38 38 36"
+"MenuBar"="38 38 36"
+"MenuHilight"="217 119 87"
+"MenuText"="232 230 220"
+"Scrollbar"="38 38 36"
+"TitleText"="232 230 220"
+"Window"="31 30 29"
+"WindowFrame"="61 61 58"
+"WindowText"="232 230 220"
+
+[HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize]
+"AppsUseLightTheme"=dword:00000000
+"SystemUsesLightTheme"=dword:00000000

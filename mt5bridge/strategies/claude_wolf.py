@@ -9,7 +9,7 @@ and snaps back inside within a candle or two. We fade that failed break in
 the direction of the higher-timeframe trend.
 
 Own risk model (nothing inherited):
-  - fixed structural risk cap: RISK_USD_CAP at config.MAX_LOT
+  - fixed structural risk budget: RISK_USD_CAP (lot sized to it, capped at config.MAX_LOT)
   - fixed reward: TARGET_RR x the actual structural risk
   - a hard time-stop: if neither SL nor TP is touched within TIME_STOP_BARS
     M1 candles, the trade is abandoned (the sweep-reclaim thesis has a short
@@ -28,7 +28,7 @@ Pipeline (H1 -> M5 -> M1):
                               extreme (only fill if momentum actually follows
                               through)
   5. Risk gate              - SL beyond the sweep wick; if that distance
-                              doesn't fit RISK_USD_CAP at MAX_LOT, REJECT
+                              doesn't fit RISK_USD_CAP at the min lot, REJECT
   6. Filters                - session window, volatility-spike guard, and one
                               signal per swept level (burned_legs)
 
@@ -38,7 +38,7 @@ touches orders. Execution goes through place_pending() + "CONFIRM ENTRY".
 from datetime import datetime, time as dtime
 
 from . import base
-from .. import config
+from .. import config, risk
 
 NAME = "claude_wolf"
 
@@ -46,7 +46,7 @@ SESSION_START_UTC = dtime(7, 0)    # London open
 SESSION_END_UTC = dtime(20, 0)    # into the NY afternoon
 
 # --- own risk model ---
-RISK_USD_CAP = 6.0                 # max structural loss at config.MAX_LOT
+RISK_USD_CAP = 6.0                 # structural risk budget; lot sized to it, capped at config.MAX_LOT
 TARGET_RR = 3.0                    # fixed reward multiple of the real risk
 MIN_RISK_POINTS = 0.8              # reject setups whose stop is unrealistically tight
 TIME_STOP_BARS = 25               # M1 candles; abandon the scalp if unresolved
@@ -163,8 +163,11 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
 
     tick_size = snapshot["tick"]["tick_size"]
     contract_size = snapshot["tick"]["contract_size"]
-    lot = config.MAX_LOT
-    max_points = RISK_USD_CAP / (contract_size * lot)
+    volume_min = snapshot["tick"]["volume_min"]
+    volume_step = snapshot["tick"]["volume_step"]
+    # Accept-window at the broker-minimum lot; position risk-sized to the SL
+    # distance up to config.MAX_LOT (2026-09-09 sniper regime).
+    max_points = RISK_USD_CAP / (contract_size * volume_min)
 
     trigger = m1[-1]
     leg_id = f"{bias[0]}:{level:.2f}"
@@ -190,6 +193,8 @@ def evaluate(snapshot: dict, reference_time: datetime = None, news_blackouts: li
         tp = round(entry - TARGET_RR * risk_points, 2)
         entry_type, side = "sell_stop", "SELL"
 
+    lot = risk.compute_lot_for_risk(entry, sl, RISK_USD_CAP, contract_size,
+                                    volume_min, volume_step, config.MAX_LOT)
     risk_usd = round(risk_points * contract_size * lot, 2)
     reward_usd = round(TARGET_RR * risk_points * contract_size * lot, 2)
 
