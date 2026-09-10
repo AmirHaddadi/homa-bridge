@@ -4,6 +4,7 @@ from . import connection, config
 
 def _tag(row: dict) -> dict:
     row["long_term"] = row.get("magic") == config.LONG_TERM_MAGIC
+    row["super_scalp"] = row.get("magic") == config.SUPER_SCALP_MAGIC
     return row
 
 
@@ -18,8 +19,9 @@ def get_state() -> dict:
             "positions": pos,
             "orders": ords,
             "account": account._asdict() if account else None,
-            "scalp_open_count": sum(1 for r in pos + ords if not r["long_term"]),
+            "scalp_open_count": sum(1 for r in pos + ords if not r["long_term"] and not r["super_scalp"]),
             "long_term_count": sum(1 for r in pos + ords if r["long_term"]),
+            "super_scalp_count": sum(1 for r in pos + ords if r["super_scalp"]),
         }
 
 

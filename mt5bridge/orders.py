@@ -42,14 +42,29 @@ def _structure_check(order_type: str, entry: float, tick) -> str | None:
 
 def place_pending(symbol: str, order_type: str, entry: float, sl: float, tp: float,
                    lot: float | None = None, comment: str = "scalp-agent",
-                   magic: int | None = None, long_term: bool = False) -> dict:
+                   magic: int | None = None, long_term: bool = False,
+                   super_scalp: bool = False) -> dict:
     if order_type.lower() not in _PENDING_TYPE_NAMES:
         return {"ok": False, "reason": f"order_type must be one of {_PENDING_TYPE_NAMES}"}
 
+    if long_term and super_scalp:
+        return {"ok": False, "reason": "cannot be both long_term and super_scalp"}
+
     if magic is None:
-        magic = config.LONG_TERM_MAGIC if long_term else config.MAGIC
+        if long_term:
+            magic = config.LONG_TERM_MAGIC
+        elif super_scalp:
+            magic = config.SUPER_SCALP_MAGIC
+        else:
+            magic = config.MAGIC
     if long_term and comment == "scalp-agent":
         comment = "long-term-swing"
+    if super_scalp and comment == "scalp-agent":
+        comment = "super-scalp"
+
+    exempt = long_term or super_scalp
+
+    comment = comment[:31]  # MT5 rejects comments longer than 31 chars ("Invalid comment argument")
 
     side = _side_of(order_type)
     with connection.session() as mt5:
@@ -58,11 +73,12 @@ def place_pending(symbol: str, order_type: str, entry: float, sl: float, tp: flo
         # Long-term swing tickets are exempt from the scalp capacity cap and do
         # not count toward it (see config.LONG_TERM_MAGIC). The cap is PER SYMBOL:
         # one scalp order/position per instrument, so gold + NDX can run at once.
-        if not long_term:
+        _exempt_magics = (config.LONG_TERM_MAGIC, config.SUPER_SCALP_MAGIC)
+        if not exempt:
             scalp_open = sum(1 for p in positions
-                             if p.magic != config.LONG_TERM_MAGIC and p.symbol == symbol) \
+                             if p.magic not in _exempt_magics and p.symbol == symbol) \
                        + sum(1 for o in orders
-                             if o.magic != config.LONG_TERM_MAGIC and o.symbol == symbol)
+                             if o.magic not in _exempt_magics and o.symbol == symbol)
             if scalp_open >= config.MAX_OPEN_POSITIONS:
                 return {
                     "ok": False,
@@ -87,6 +103,9 @@ def place_pending(symbol: str, order_type: str, entry: float, sl: float, tp: flo
         if long_term:
             max_loss_usd = config.LONG_TERM_MAX_LOSS_USD
             max_profit_usd = config.LONG_TERM_MAX_PROFIT_USD
+        elif super_scalp:
+            max_loss_usd = config.SUPER_SCALP_MAX_LOSS_USD
+            max_profit_usd = config.SUPER_SCALP_MAX_PROFIT_USD
         else:
             max_loss_usd = config.max_loss_for(symbol)
             max_profit_usd = config.max_profit_for(symbol)
@@ -120,6 +139,9 @@ def place_pending(symbol: str, order_type: str, entry: float, sl: float, tp: flo
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
         result = mt5.order_send(request)
+        if result is None:
+            return {"ok": False, "reason": f"order_send returned None; last_error={mt5.last_error()}",
+                    "request": {k: str(v) for k, v in request.items()}}
         return {
             "ok": result.retcode == mt5.TRADE_RETCODE_DONE,
             "retcode": result.retcode,
@@ -131,6 +153,7 @@ def place_pending(symbol: str, order_type: str, entry: float, sl: float, tp: flo
             "rr": round(reward_usd / risk_usd, 2) if risk_usd > 0 else None,
             "magic": magic,
             "long_term": long_term,
+            "super_scalp": super_scalp,
             "bid": tick.bid, "ask": tick.ask,
         }
 

@@ -81,6 +81,8 @@ def max_profit_for(symbol: str) -> float:
 
 
 MAX_OPEN_POSITIONS = 1  # per symbol: positions + pending orders combined, enforced in orders.place_pending
+# Tried 3 (laddering) on 2026-09-09 -- reverted to 1: single position is cleaner for scalps
+# (Amir's call after the ladder session went -$16). See memory lesson_2026-09-09_squeeze_stophunt.
 MAGIC = 20260904
 
 # --- Long-term swing exception (see memory: long-term-swing-exception, added 2026-09-08) ---
@@ -95,6 +97,19 @@ MAGIC = 20260904
 LONG_TERM_MAGIC = 20260908
 LONG_TERM_MAX_LOSS_USD = 20.0
 LONG_TERM_MAX_PROFIT_USD = 1_000_000.0  # effectively uncapped; 10R+ is the whole point
+
+# --- Super-scalp exception (see memory: super-scalp-definition, added 2026-09-09) ---
+# A "super scalp" is a momentum trade around current price that the user runs
+# SEPARATELY from the agent's scalp book. Like LONG_TERM_MAGIC, SUPER_SCALP_MAGIC
+# tickets are tagged separately, EXCLUDED from the MAX_OPEN_POSITIONS count (so a
+# super scalp never blocks or is blocked by a pending agent setup), and use their
+# own risk/profit caps. Daily circuit breakers and the "one open trade"
+# journal convention do NOT apply to SUPER_SCALP_MAGIC tickets.
+SUPER_SCALP_MAGIC = 20260909
+# 2026-09-09 (later): Amir runs super scalps at up to $15 risk / 0.03 lot and wants
+# RR up to 3 on the good ones ("سود خوبی بگیریم") -- caps widened from $10/$30.
+SUPER_SCALP_MAX_LOSS_USD = 15.0
+SUPER_SCALP_MAX_PROFIT_USD = 50.0  # momentum / level-to-level pops, still not a swing vehicle
 
 # Daily circuit breakers (checked by the caller against the day's trade_journal
 # before proposing a new setup -- not auto-enforced inside the bridge itself).

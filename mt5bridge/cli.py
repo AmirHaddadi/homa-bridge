@@ -50,6 +50,9 @@ def build_parser():
     pl.add_argument("--long-term", action="store_true", dest="long_term",
                      help="long-term swing exception: separate magic, exempt from "
                           "MAX_OPEN_POSITIONS and scalp caps, risk cap $15, no profit cap")
+    pl.add_argument("--super-scalp", action="store_true", dest="super_scalp",
+                     help="super-scalp exception: separate magic, exempt from "
+                          "MAX_OPEN_POSITIONS and scalp caps, risk cap $10, profit cap $30")
 
     c = sub.add_parser("cancel", help="cancel a pending order by ticket")
     c.add_argument("ticket", type=int)
@@ -150,6 +153,7 @@ def main(argv=None):
         res = orders.place_pending(
             config.resolve_symbol(args.symbol), args.type, args.entry, args.sl, args.tp,
             lot=args.lot, comment=args.comment, long_term=args.long_term,
+            super_scalp=args.super_scalp,
         )
         _print(res)
         if not res.get("ok"):
